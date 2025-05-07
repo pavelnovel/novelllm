@@ -1,0 +1,1 @@
+{"timestamp": "2023-07-19 00:47:32", "text": "Would any Shopify store-haver here be interested in trying out an end-to-end ad generator? We've been building a tool on multiple AI models that generates copy and image variations for direct ad publishing on Facebook. Let me know who'd be down to try it out"}

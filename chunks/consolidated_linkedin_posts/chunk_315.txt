@@ -1,0 +1,1 @@
+{"timestamp": "2024-09-12 23:55:20", "text": "New model preview just dropped. o1 it's called, and chain-of-thought reasoning is what it does best. It shows higher placements for benchmarks, especially in math, science, and coding. \"In many reasoning-heavy benchmarks, o1 rivals the performance of human experts.\" It's becoming available for Plus users and API."}

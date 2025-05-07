@@ -1,0 +1,1 @@
+{"timestamp": "2019-10-12 17:07:44", "text": "I'm curious about how many people use LinkedIn on the weekends as opposed to the weekdays, and if the type of activity changes. It feels as if my feed has fewer recent posts on the weekends, but I'm not sure if that's the algorithm doing that or not. Point being, I still don't understand LinkedIn's feed algorithm"}

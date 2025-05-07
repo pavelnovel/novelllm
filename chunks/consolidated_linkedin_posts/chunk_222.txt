@@ -1,0 +1,1 @@
+{"timestamp": "2023-10-16 18:04:03", "text": "The interaction between AI models can create productive workflows. It can also create some very mesmerizing and trippy outputs Here's what one X user created as a recursive loop between GPT4 describing the image and Dall-E 3 creating it. I bet you can make a religion out of this. (h/t @conradgodfrey)"}

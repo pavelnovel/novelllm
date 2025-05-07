@@ -1,0 +1,1 @@
+{"timestamp": "2024-06-04 17:59:23", "text": "ChatGPT AND Claude are down at the same time! Is this how the AGI starts? (Also, Claude needs a better-designed error page... like what is this?)"}

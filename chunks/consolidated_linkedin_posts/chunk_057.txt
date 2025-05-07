@@ -1,0 +1,1 @@
+{"timestamp": "2020-09-09 22:52:52", "text": "The tech giants continue to find ways to support (and profit with) local creators. Google's incubator division for experimental projects, Area 120, launched Fundo, an app for creators to host small paid online events, available now in the US and Canada. Obviously and understandably, Google is to take a 20% cut of revenue"}
