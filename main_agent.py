@@ -153,42 +153,34 @@ def build_graph():
     
     return workflow.compile()
 
-if __name__ == "__main__":
-    # Basic logging setup
-    logging.basicConfig(level=logging.INFO)
-    
-    # Create the graph
-    print("Initializing agent...")
-    graph = build_graph()
-    
-    # Take input from the user
-    user_input = input("Ask something: ")
-    
-    # Run the graph
-    state = {"messages": [HumanMessage(content=user_input)]}
-    print("Running agent...")
+# Initialize the graph once
+graph = build_graph()
+
+def process_query(query: str) -> str:
+    """Process a single query through the agent."""
+    state = {"messages": [HumanMessage(content=query)]}
     result = graph.invoke(state)
     
     # Extract the final response
     final_message = result["messages"][-1]
     if isinstance(final_message, AIMessage):
-        # If it's an AI message, check if it's summarizing a tool response
         if "You wrote about" in final_message.content or "Marketing is" in final_message.content:
-            # This is a summary, show the raw tool response instead
-            tool_message = result["messages"][-2]  # Get the tool message
+            tool_message = result["messages"][-2]
             if isinstance(tool_message, ToolMessage):
-                print("\n🔍 Complete Response:")
-                print("------------------")
-                print(tool_message.content)
-        else:
-            print("\n🧠 Answer:")
-            print("---------")
-            print(final_message.content)
+                return tool_message.content
+        return final_message.content
     elif isinstance(final_message, ToolMessage):
-        # If it's a tool message, show it directly to preserve formatting
-        print("\n🔍 Complete Response:")
-        print("------------------")
-        # Print the content exactly as received to preserve formatting
-        print(final_message.content)
+        return final_message.content
     else:
-        print("\n❌ No response generated.")
+        return "No response generated."
+
+if __name__ == "__main__":
+    # Basic logging setup
+    logging.basicConfig(level=logging.INFO)
+    
+    # Take input from the user
+    user_input = input("Ask something: ")
+    response = process_query(user_input)
+    print("\nResponse:")
+    print("---------")
+    print(response)

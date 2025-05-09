@@ -16,7 +16,7 @@ def main():
     ]
     
     for query in test_queries:
-        print(f"\nQuery: {query}")
+        print(f"\nQuery: {query}") 
         results = vector_store.query(query, n_results=3)
         
         for i, result in enumerate(results, 1):
