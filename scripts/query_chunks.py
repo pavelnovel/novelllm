@@ -3,7 +3,7 @@ import logging
 import chromadb
 from typing import List, Dict, Any
 from chromadb.utils.embedding_functions import OpenAIEmbeddingFunction
-from embed_chunks import EmbeddingConfig
+from scripts.embed_chunks import EmbeddingConfig
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

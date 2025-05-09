@@ -188,6 +188,7 @@ if __name__ == "__main__":
         # If it's a tool message, show it directly to preserve formatting
         print("\n🔍 Complete Response:")
         print("------------------")
+        # Print the content exactly as received to preserve formatting
         print(final_message.content)
     else:
         print("\n❌ No response generated.")

@@ -96,10 +96,25 @@ class KnowledgeBase:
             sources = []
             for source_node in response.source_nodes:
                 if hasattr(source_node, 'node'):
+                    content = source_node.node.text
+                    timestamp = None
+                    text_content = None
+                    # Try to extract timestamp and text from content if it's JSON
+                    try:
+                        import json
+                        content_json = json.loads(content)
+                        if "timestamp" in content_json:
+                            timestamp = content_json["timestamp"]
+                        if "text" in content_json:
+                            text_content = content_json["text"]
+                    except:
+                        # If not JSON, use the content as is
+                        text_content = content
+                    
                     source_info = {
                         'score': source_node.score,
-                        'file_path': source_node.node.metadata.get('file_path', 'Unknown'),
-                        'content': source_node.node.text[:200] + '...' if len(source_node.node.text) > 200 else source_node.node.text
+                        'content': text_content[:150] + '...' if text_content and len(text_content) > 150 else text_content,
+                        'timestamp': timestamp
                     }
                     sources.append(source_info)
             
@@ -115,11 +130,9 @@ class KnowledgeBase:
             # Add sources section
             if sources:
                 formatted_response.append("Sources:")
-                formatted_response.append("--------")
                 for source in sources:
-                    formatted_response.append(f"📑 {source['file_path']} (Score: {source['score']:.4f})")
-                    formatted_response.append(f"   Preview: {source['content']}")
-                    formatted_response.append("")
+                    source_line = f"- {source['content']} ({source['timestamp']})"
+                    formatted_response.append(source_line)
             
             # Join everything together
             complete_response = "\n".join(formatted_response)
@@ -165,5 +178,4 @@ if __name__ == "__main__":
     print("\n=== SOURCES ===")
     for source in result['sources']:
         print(f"\nScore: {source['score']:.4f}")
-        print(f"File: {source['file_path']}")
         print(f"Preview: {source['content']}")
