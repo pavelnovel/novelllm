@@ -1,256 +1,193 @@
-from typing import Annotated, Sequence, TypedDict
+from typing import Annotated, List, TypedDict, Dict, Any
 from langgraph.graph import StateGraph, END
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
-from tools import query_knowledge_base
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage
 import operator
 import json
+import logging
 
-# Define the state type
+# Import your tools
+from tools import query_knowledge_base
+
+# Define a simple state with proper typing
 class AgentState(TypedDict):
-    messages: Annotated[Sequence, operator.add]
-    next: str
+    messages: Annotated[List[BaseMessage], operator.add]
 
-# Create tools list
+# Create the LLM and bind tools once
+llm = ChatOpenAI(model="gpt-4.1-nano", temperature=0.5)
 tools = [query_knowledge_base]
+LLM_WITH_TOOLS = llm.bind_tools(tools)
 
-# Initialize the language model with tool calling enabled
-llm = ChatOpenAI(
-    model="gpt-4.1-nano",
-    temperature=0,
-    model_kwargs={
-        "tools": [{
-            "type": "function",
-            "function": {
-                "name": "query_knowledge_base",
-                "description": "Run a semantic query against the embedded corpus.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "topic": {
-                            "type": "string",
-                            "description": "The topic to search for in the knowledge base"
-                        }
-                    },
-                    "required": ["topic"]
-                }
-            }
-        }]
-    }
-)
+# Create tool registry for easy lookup
+TOOL_REGISTRY = {tool.name: tool.run for tool in tools}
 
-def manage_message_history(messages, max_messages=5):
-    """Manage message history to prevent exceeding token limits."""
-    if len(messages) <= max_messages:
-        return messages
-    
-    # Always keep the system message if it exists
-    system_message = next((msg for msg in messages if msg.get("role") == "system"), None)
-    
-    # Keep the most recent messages
-    recent_messages = messages[-max_messages:]
-    
-    # If we had a system message and it's not in the recent messages, add it back
-    if system_message and system_message not in recent_messages:
-        return [system_message] + recent_messages
-    
-    return recent_messages
+# System message for the agent
+SYSTEM_MESSAGE = """You are a helpful assistant that can search through documents. 
+Use the query_knowledge_base tool to search for information. 
+After getting the search results, return the COMPLETE response including both the answer and all sources.
+DO NOT summarize or modify the response in any way.
+IMPORTANT: Only make one tool call at a time.
+IMPORTANT: Always preserve and include ALL source information from the tool's response."""
 
-def should_continue(state: AgentState) -> str:
-    """Determine the next node based on the state."""
-    messages = state["messages"]
-    last_message = messages[-1]
+# Agent node function
+def agent(state: AgentState) -> Dict[str, Any]:
+    """Agent node that generates responses."""
+    msgs = state["messages"]
     
-    # If the last message is from the assistant and has no tool calls, we're done
-    if last_message["role"] == "assistant" and not last_message.get("tool_calls"):
-        return END
+    # Insert system message if not present
+    if not any(isinstance(m, SystemMessage) for m in msgs):
+        msgs = [SystemMessage(content=SYSTEM_MESSAGE)] + msgs
     
-    # If the last message is a tool response, go back to agent
-    if last_message["role"] == "tool":
-        return "agent"
-    
-    # If the last message is from the assistant and has tool calls, go to tools
-    if last_message["role"] == "assistant" and last_message.get("tool_calls"):
-        return "tools"
-    
-    # Default to ending
-    return END
-
-def agent_node(state: AgentState):
-    """Agent node that decides what to do next."""
-    messages = state["messages"]
-    
-    # Add system message if it's the first message
-    if len(messages) == 1 and messages[0].get("role") != "system":
-        messages = [
-            {"role": "system", "content": "You are a helpful assistant that can search through documents. Use the query_knowledge_base tool to search for information. After getting the search results, provide a final answer based on those results and DO NOT make additional tool calls. IMPORTANT: Only make one tool call at a time."}
-        ] + messages
-    
-    # Manage message history to prevent exceeding token limits
-    messages = manage_message_history(messages)
-    
-    print(f"\nDebug - Message count: {len(messages)}")
-    print("\n🤖 Assistant thinking...")
-    
+    # Generate a response using the LLM with tools
     try:
-        response = llm.invoke(messages)
-        print(f"Debug - Response content: {response.content}")
-        print(f"Debug - Has tool calls: {hasattr(response, 'tool_calls')}")
-        if hasattr(response, 'tool_calls'):
-            print(f"Debug - Tool calls: {response.tool_calls}")
-        
-        # Check if the response contains tool calls
-        if hasattr(response, 'tool_calls') and response.tool_calls:
-            print(f"Debug - Processing tool call")
-            tool_call = response.tool_calls[0]
-            
-            # Create the tool call message in the correct format
-            tool_call_message = {
-                "role": "assistant",
-                "content": response.content,
-                "tool_calls": [{
-                    "id": tool_call.get("id", f"call_{hash(str(tool_call))}"),  # Generate ID if not present
-                    "type": "function",
-                    "function": {
-                        "name": tool_call.get("name", tool_call.get("function", {}).get("name")),
-                        "arguments": json.dumps(tool_call.get("args", tool_call.get("function", {}).get("arguments", {})))
-                    }
-                }]
-            }
-            
-            return {
-                "messages": messages + [tool_call_message]
-            }
-        
-        # If no valid tool calls, just return the response
-        print("Debug - No tool calls, returning final response")
-        return {"messages": messages + [{"role": "assistant", "content": response.content}]}
-    
+        result = LLM_WITH_TOOLS.invoke(msgs)
+        logging.debug(f"Generated response type: {type(result).__name__}")
+        if hasattr(result, "tool_calls") and result.tool_calls:
+            logging.debug(f"Response contains {len(result.tool_calls)} tool calls")
+        return {"messages": [result]}
     except Exception as e:
-        print(f"Error in agent_node: {str(e)}")
-        return {
-            "messages": messages + [
-                {"role": "assistant", "content": "I apologize, but I encountered an error processing your request. Could you try asking in a different way?"}
-            ]
-        }
+        logging.error(f"Error generating response: {str(e)}")
+        return {"messages": [AIMessage(content=f"Error: {str(e)}")]}
 
-def tools_node(state: AgentState):
-    """Tools node that executes the selected tool."""
-    messages = state["messages"]
-    last_message = messages[-1]
+# Tool execution node
+def run_tools(state: AgentState) -> Dict[str, Any]:
+    """Execute tools called by the agent."""
+    last = state["messages"][-1]
+    tool_messages = []
     
-    try:
-        if "tool_calls" not in last_message:
-            print("Debug - No tool calls found in last message")
-            return {"messages": messages}
-        
-        tool_call = last_message["tool_calls"][0]
-        tool_name = tool_call["function"]["name"]
-        tool_args = tool_call["function"]["arguments"]
-        tool_call_id = tool_call["id"]
-        
-        print(f"\n🔧 Executing tool: {tool_name}")
-        print(f"Debug - Tool args: {tool_args}")
-        
-        # Find and execute the matching tool
-        result = "Tool execution failed."
-        for tool in tools:
-            if tool.name == tool_name:
+    # Get tool_calls, handling both object and dict formats
+    tool_calls = []
+    if hasattr(last, "tool_calls"):
+        tool_calls = last.tool_calls
+    
+    for call in tool_calls:
+        try:
+            # Handle both object and dict styles for the tool call
+            if isinstance(call, dict):
+                tool_name = call.get("name")
+                tool_id = call.get("id")
+                # Get arguments from different possible locations
+                if "arguments" in call:
+                    args_str = call["arguments"]
+                elif "args" in call:
+                    args_str = call["args"]
+                else:
+                    args_str = "{}"
+            else:
+                # Object style
+                tool_name = call.name if hasattr(call, "name") else None
+                tool_id = call.id if hasattr(call, "id") else None
+                args_str = call.arguments if hasattr(call, "arguments") else call.args if hasattr(call, "args") else "{}"
+            
+            # Parse arguments - handle both string and dict formats
+            if isinstance(args_str, str):
                 try:
-                    # Parse arguments if they're in JSON format
-                    if isinstance(tool_args, str):
-                        args_dict = json.loads(tool_args)
-                    else:
-                        args_dict = tool_args
-                    
-                    # Ensure we have a topic parameter
-                    if isinstance(args_dict, dict) and "topic" in args_dict:
-                        result = tool.invoke(args_dict)
-                    else:
-                        result = tool.invoke({"topic": str(args_dict)})
+                    args = json.loads(args_str)
                 except json.JSONDecodeError:
-                    # Fallback if parsing fails
-                    result = tool.invoke({"topic": str(tool_args)})
-                break
-        
-        # Limit the size of the result if it's too large
-        result_str = str(result)
-        if len(result_str) > 1000:  # Truncate large results
-            result_str = result_str[:1000] + "... [Result truncated due to size]"
-        
-        print(f"Debug - Tool result length: {len(result_str)}")
-        
-        # Add the result to messages with proper tool response format
-        return {
-            "messages": messages + [{
-                "role": "tool",
-                "tool_call_id": tool_call_id,
-                "content": result_str
-            }]
-        }
+                    args = {"topic": args_str}  # Fallback for query_knowledge_base
+            else:
+                args = args_str
+                
+            print(f"Executing tool {tool_name} with args: {args}")
+            
+            # Special case for query_knowledge_base which expects a single string
+            if tool_name == "query_knowledge_base":
+                if isinstance(args, dict) and "topic" in args:
+                    result = TOOL_REGISTRY[tool_name](args["topic"])
+                else:
+                    result = TOOL_REGISTRY[tool_name](str(args))
+            else:
+                # Generic tool execution with kwargs
+                result = TOOL_REGISTRY[tool_name](**args)
+            
+            # Create tool message with the result
+            tool_messages.append(
+                ToolMessage(content=str(result), tool_call_id=tool_id)
+            )
+        except Exception as e:
+            print(f"Error executing tool: {str(e)}")
+            # Get tool_id even if we encountered an error earlier
+            tool_id = None
+            if isinstance(call, dict):
+                tool_id = call.get("id")
+            else:
+                tool_id = call.id if hasattr(call, "id") else None
+                
+            if tool_id:
+                tool_messages.append(
+                    ToolMessage(content=f"Error: {str(e)}", tool_call_id=tool_id)
+                )
     
-    except Exception as e:
-        print(f"Error in tools_node: {str(e)}")
-        if "tool_calls" in last_message and len(last_message["tool_calls"]) > 0:
-            tool_call_id = last_message["tool_calls"][0]["id"]
-            return {
-                "messages": messages + [{
-                    "role": "tool",
-                    "tool_call_id": tool_call_id,
-                    "content": f"Error executing tool: {str(e)}"
-                }]
-            }
-        else:
-            return {
-                "messages": messages + [{
-                    "role": "assistant",
-                    "content": "I encountered an error and couldn't process your request."
-                }]
-            }
+    return {"messages": tool_messages}
 
-# Create the graph
-workflow = StateGraph(AgentState)
+# Simple routing function that handles both dict and object styles
+def route(state):
+    last = state["messages"][-1]
+    
+    # Check if the last message has tool calls
+    has_tool_calls = False
+    
+    if isinstance(last, AIMessage):
+        if hasattr(last, "tool_calls") and last.tool_calls:
+            has_tool_calls = True
+    
+    return "tools" if has_tool_calls else END
 
-# Add nodes
-workflow.add_node("agent", agent_node)
-workflow.add_node("tools", tools_node)
-
-# Add conditional edges
-workflow.add_conditional_edges(
-    "agent",
-    should_continue,
-    {
-        "tools": "tools",
-        END: END
-    }
-)
-
-workflow.add_conditional_edges(
-    "tools",
-    should_continue,
-    {
-        "agent": "agent",
-        END: END
-    }
-)
-
-# Set entry point
-workflow.set_entry_point("agent")
-
-# Compile the graph
-app = workflow.compile()
+# Create a graph
+def build_graph():
+    workflow = StateGraph(AgentState)
+    
+    # Add nodes
+    workflow.add_node("agent", agent)
+    workflow.add_node("tools", run_tools)
+    
+    # Add conditional edges with the new route function
+    workflow.add_conditional_edges("agent", route, {"tools": "tools", END: END})
+    
+    # Add edge from tools back to agent
+    workflow.add_edge("tools", "agent")
+    
+    # Set the entry point
+    workflow.set_entry_point("agent")
+    
+    return workflow.compile()
 
 if __name__ == "__main__":
-    # Initialize the state
-    state = {
-        "messages": [{"role": "user", "content": input("Ask something: ")}],
-        "next": "agent"
-    }
+    # Basic logging setup
+    logging.basicConfig(level=logging.INFO)
+    
+    # Create the graph
+    print("Initializing agent...")
+    graph = build_graph()
+    
+    # Take input from the user
+    user_input = input("Ask something: ")
     
     # Run the graph
-    for output in app.stream(state):
-        if "messages" in output:
-            last_message = output["messages"][-1]
-            if last_message["role"] == "assistant" and not last_message.get("tool_calls"):
-                print("\n🧠 Answer:\n", last_message["content"])
+    state = {"messages": [HumanMessage(content=user_input)]}
+    print("Running agent...")
+    result = graph.invoke(state)
+    
+    # Extract the final response
+    final_message = result["messages"][-1]
+    if isinstance(final_message, AIMessage):
+        # If it's an AI message, check if it's summarizing a tool response
+        if "You wrote about" in final_message.content or "Marketing is" in final_message.content:
+            # This is a summary, show the raw tool response instead
+            tool_message = result["messages"][-2]  # Get the tool message
+            if isinstance(tool_message, ToolMessage):
+                print("\n🔍 Complete Response:")
+                print("------------------")
+                print(tool_message.content)
+        else:
+            print("\n🧠 Answer:")
+            print("---------")
+            print(final_message.content)
+    elif isinstance(final_message, ToolMessage):
+        # If it's a tool message, show it directly to preserve formatting
+        print("\n🔍 Complete Response:")
+        print("------------------")
+        print(final_message.content)
+    else:
+        print("\n❌ No response generated.")

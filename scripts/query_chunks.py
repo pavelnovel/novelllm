@@ -1,78 +1,98 @@
 import os
 import logging
-from llama_index.core import VectorStoreIndex, ServiceContext
-from llama_index.vector_stores.chroma import ChromaVectorStore
-from llama_index.core import StorageContext
-from llama_index.core.query_engine import RetrieverQueryEngine
-from llama_index.core.node_parser import SimpleNodeParser
-from llama_index.llms.openai import OpenAI
 import chromadb
+from typing import List, Dict, Any
+from chromadb.utils.embedding_functions import OpenAIEmbeddingFunction
+from embed_chunks import EmbeddingConfig
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-def setup_retrieval_engine():
-    try:
-        # Configure LLM
-        logger.info("Configuring LLM")
-        llm = OpenAI(model_name="gpt-4.1-nano")
-        service_context = ServiceContext.from_defaults(llm=llm)
+class VectorStore:
+    def __init__(self):
+        """Initialize the vector store."""
+        try:
+            # Initialize configuration
+            self.config = EmbeddingConfig()
+            
+            # Initialize embedder
+            if not os.getenv("OPENAI_API_KEY"):
+                raise ValueError("OPENAI_API_KEY environment variable is not set")
+            self.embedder = OpenAIEmbeddingFunction(api_key=os.getenv("OPENAI_API_KEY"))
+            
+            # Connect to ChromaDB
+            logger.info("Connecting to ChromaDB")
+            self.client = chromadb.PersistentClient(path=self.config.store_path)
+            self.collection = self.client.get_or_create_collection(self.config.collection_name)
+            
+        except Exception as e:
+            logger.error(f"Error initializing vector store: {e}")
+            raise
+    
+    def query(self, query: str, n_results: int = 5) -> List[Dict[str, Any]]:
+        """Query the vector store.
         
-        # Connect to Chroma DB
-        logger.info("Connecting to ChromaDB")
-        chroma_client = chromadb.PersistentClient(path="./chroma_store")
-        collection = chroma_client.get_or_create_collection("linkedin_chunks")
-        vector_store = ChromaVectorStore(chroma_collection=collection)
-        
-        # Create storage context
-        storage_context = StorageContext.from_defaults(vector_store=vector_store)
-        
-        # Create index from vector store
-        logger.info("Creating index from vector store")
-        index = VectorStoreIndex.from_vector_store(
-            vector_store=vector_store,
-            service_context=service_context
-        )
-        
-        # Configure query engine with parameters
-        logger.info("Configuring query engine")
-        query_engine = index.as_query_engine(
-            similarity_top_k=5,  # Number of chunks to retrieve
-            response_mode="compact"  # Options: "default", "compact", "tree_summarize"
-        )
-        
-        return query_engine
-        
-    except Exception as e:
-        logger.error(f"Error setting up retrieval engine: {e}")
-        raise
-
-def run_query(query_text):
-    try:
-        logger.info(f"Running query: {query_text}")
-        query_engine = setup_retrieval_engine()
-        response = query_engine.query(query_text)
-        return response
-    except Exception as e:
-        logger.error(f"Error running query: {e}")
-        raise
+        Args:
+            query: Query string
+            n_results: Number of results to return
+            
+        Returns:
+            List of dictionaries containing results
+        """
+        try:
+            # Get query embedding
+            query_vector = self.embedder([query])[0]
+            
+            # Query ChromaDB directly
+            results = self.collection.query(
+                query_embeddings=[query_vector],
+                n_results=n_results,
+                include=["documents", "metadatas", "distances"]
+            )
+            
+            # Format results
+            formatted_results = []
+            for i in range(len(results["ids"][0])):
+                content = results["documents"][0][i]
+                metadata = results["metadatas"][0][i] if results["metadatas"] else {"file_path": "unknown"}
+                distance = results["distances"][0][i]
+                
+                # Extract file path from content if metadata is missing
+                if "file_path" not in metadata:
+                    try:
+                        import json
+                        content_json = json.loads(content)
+                        file_path = f"consolidated/linkedin_posts_chunk_{content_json.get('chunk_id', 'unknown')}"
+                        metadata["file_path"] = file_path
+                    except:
+                        metadata["file_path"] = "unknown"
+                
+                formatted_results.append({
+                    "content": content,
+                    "metadata": metadata,
+                    "score": 1 - distance  # Convert distance to similarity score
+                })
+            
+            return formatted_results
+            
+        except Exception as e:
+            logger.error(f"Error querying vector store: {str(e)}")
+            return []
 
 if __name__ == "__main__":
     # Example query
+    vector_store = VectorStore()
     query = "write a post about hiring"
-    response = run_query(query)
+    results = vector_store.query(query)
     
     print("\n" + "="*50)
-    print("QUERY RESPONSE:")
-    print("="*50)
-    print(response)
+    print("QUERY RESULTS:")
     print("="*50)
     
-    # Optional: Print source nodes/documents that were used
-    print("\nSource documents used:")
-    for node in response.source_nodes:
-        print(f"- Score: {node.score:.4f}")
-        print(f"- Source: {node.node.metadata}")
-        print(f"- Text snippet: {node.node.text[:150]}...")
+    for i, result in enumerate(results, 1):
+        print(f"\nResult {i}:")
+        print(f"Content: {result['content'][:200]}...")
+        print(f"Source: {result['metadata']['file_path']}")
+        print(f"Score: {result['score']:.3f}")
         print("-"*30)
