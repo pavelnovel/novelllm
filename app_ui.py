@@ -8,11 +8,11 @@ def ask_agent(question):
         return f"Error: {str(e)}"
 
 with gr.Blocks() as demo:
-    gr.Markdown("# Local LLM Agent")
-    gr.Markdown("Ask questions to the agent and get responses.")
+    gr.Markdown("# local agent")
+    gr.Markdown("good questions leads to more insights than great answers")
     
     with gr.Row():
-        inp = gr.Textbox(label="Ask the Agent:", lines=2, placeholder="Type your question here...")
+        inp = gr.Textbox(label="ask and ye shall receive:", lines=2, placeholder="Type your question here...")
         submit_btn = gr.Button("Submit", variant="primary")
     
     out = gr.Textbox(label="Agent Reply", lines=10)

@@ -84,6 +84,29 @@ class KnowledgeBase:
             logger.error(f"Error initializing knowledge base: {str(e)}")
             raise
     
+    def _format_sources_table(self, sources: List[Dict[str, Any]]) -> List[str]:
+        """Format sources as a markdown table.
+        
+        Args:
+            sources: List of source dictionaries containing content and timestamp
+            
+        Returns:
+            List of strings representing the formatted table
+        """
+        formatted = []
+        formatted.append("| Date | Preview |")
+        formatted.append("|------|---------|")
+        
+        for source in sources:
+            # Truncate content to 60 chars for table display
+            preview = source['content'][:60] + "..." if len(source['content']) > 60 else source['content']
+            date = source['timestamp']
+            # Escape pipe if needed in content
+            preview = preview.replace("|", "\\|")
+            formatted.append(f"| {date} | {preview} |")
+            
+        return formatted
+
     def query(self, query_text: str) -> Dict[str, Any]:
         """Execute a query against the knowledge base."""
         try:
@@ -122,7 +145,7 @@ class KnowledgeBase:
             formatted_response = []
             
             # Add the main response
-            formatted_response.append("Response:")
+            formatted_response.append("Answer:")
             formatted_response.append("---------")
             formatted_response.append(response.response)
             formatted_response.append("")
@@ -131,7 +154,7 @@ class KnowledgeBase:
             if sources:
                 formatted_response.append("Sources:")
                 for source in sources:
-                    source_line = f"- {source['content']} ({source['timestamp']})"
+                    source_line = f"📅 {source['timestamp']} ⚡️ {source['content']}"
                     formatted_response.append(source_line)
             
             # Join everything together
@@ -155,7 +178,13 @@ class KnowledgeBase:
             }
 
 # Create a singleton instance
-knowledge_base = KnowledgeBase()
+def get_knowledge_base():
+    """Get or create the knowledge base instance."""
+    if not hasattr(get_knowledge_base, 'instance'):
+        get_knowledge_base.instance = KnowledgeBase()
+    return get_knowledge_base.instance
+
+knowledge_base = get_knowledge_base()
 
 # Expose the query engine for direct use
 query_engine = knowledge_base.query_engine
